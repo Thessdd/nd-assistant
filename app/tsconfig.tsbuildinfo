@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/calendarconnect.tsx","./src/components/chatinterface.tsx","./src/components/tasklist.tsx","./src/hooks/usechat.ts","./src/hooks/usetasks.ts"],"version":"5.9.3"}
