@@ -13,10 +13,14 @@ export type ExtractedTask = {
 type ChatStreamEvent =
   | { type: "delta"; text: string }
   | { type: "task"; task: ExtractedTask }
+  | { type: "suggestions"; suggestions: string[] }
   | { type: "done" }
   | { type: "error"; message: string };
 
 const LS_CHAT = "chat_history";
+const LS_PROFILE = "nd_profile";
+const MAX_SAVED_MESSAGES = 300;
+const PERSIST_DEBOUNCE_MS = 400;
 
 function safeJsonParse<T>(value: string | null): T | null {
   if (!value) return null;
@@ -52,6 +56,7 @@ function parseSseChunk(buffer: string): { events: ChatStreamEvent[]; rest: strin
     try {
       if (eventType === "delta") events.push({ type: "delta", text: data });
       else if (eventType === "task") events.push({ type: "task", task: JSON.parse(data) as ExtractedTask });
+      else if (eventType === "suggestions") events.push({ type: "suggestions", suggestions: JSON.parse(data) as string[] });
       else if (eventType === "done") events.push({ type: "done" });
       else if (eventType === "error") events.push({ type: "error", message: data });
     } catch {
@@ -69,12 +74,41 @@ export function useChat() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastExtractedTask, setLastExtractedTask] = useState<ExtractedTask | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
 
   const abortRef = useRef<AbortController | null>(null);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  const persistTimerRef = useRef<number | null>(null);
+
+  const persistNow = useCallback((nextMessages: ChatMessage[]) => {
+    const capped = nextMessages.slice(-MAX_SAVED_MESSAGES);
+    localStorage.setItem(LS_CHAT, JSON.stringify(capped));
+  }, []);
+
+  const schedulePersist = useCallback(() => {
+    if (persistTimerRef.current != null) window.clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = window.setTimeout(() => {
+      persistTimerRef.current = null;
+      persistNow(messagesRef.current);
+    }, PERSIST_DEBOUNCE_MS);
+  }, [persistNow]);
 
   useEffect(() => {
-    localStorage.setItem(LS_CHAT, JSON.stringify(messages));
+    messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    // Persist on changes, but avoid writing on every streamed delta.
+    if (isStreaming) schedulePersist();
+    else persistNow(messages);
+  }, [isStreaming, messages, persistNow, schedulePersist]);
+
+  useEffect(() => {
+    return () => {
+      if (persistTimerRef.current != null) window.clearTimeout(persistTimerRef.current);
+      persistNow(messagesRef.current);
+    };
+  }, [persistNow]);
 
   const clearAll = useCallback(() => {
     localStorage.removeItem(LS_CHAT);
@@ -89,6 +123,7 @@ export function useChat() {
 
     setError(null);
     setLastExtractedTask(null);
+    setSuggestions([]);
     setIsStreaming(true);
 
     abortRef.current?.abort();
@@ -96,12 +131,20 @@ export function useChat() {
     abortRef.current = controller;
 
     setMessages((prev) => [...prev, { role: "user", content: message }, { role: "assistant", content: "" }]);
+    // Persist immediately when the user sends a message (cap applied in persistNow).
+    persistNow([...messagesRef.current, { role: "user", content: message }, { role: "assistant", content: "" }]);
 
     try {
+      const profile = safeJsonParse<unknown>(localStorage.getItem(LS_PROFILE));
+      const history = messagesRef.current
+        .filter((m) => m.content.trim().length > 0)
+        .map(({ role, content }) => ({ role, content }));
+      const payload = [...history, { role: "user" as const, content: message }].slice(-20);
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ messages: payload, profile }),
         signal: controller.signal
       });
 
@@ -134,6 +177,9 @@ export function useChat() {
             });
           } else if (ev.type === "task") {
             setLastExtractedTask(ev.task);
+          } else if (ev.type === "suggestions") {
+            if (!Array.isArray(ev.suggestions)) continue;
+            setSuggestions(ev.suggestions.filter((s) => typeof s === "string" && s.trim().length > 0).slice(0, 4));
           } else if (ev.type === "error") {
             setError(ev.message);
           }
@@ -144,8 +190,10 @@ export function useChat() {
     } finally {
       setIsStreaming(false);
       abortRef.current = null;
+      // Flush any pending debounced persist once stream ends.
+      persistNow(messagesRef.current);
     }
-  }, []);
+  }, [persistNow]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -153,6 +201,6 @@ export function useChat() {
 
   const canAddTask = useMemo(() => !!lastExtractedTask?.has_task && !!lastExtractedTask.title?.trim(), [lastExtractedTask]);
 
-  return { messages, sendMessage, isStreaming, stop, error, clearAll, lastExtractedTask, canAddTask };
+  return { messages, sendMessage, isStreaming, stop, error, clearAll, lastExtractedTask, canAddTask, suggestions, setSuggestions };
 }
 

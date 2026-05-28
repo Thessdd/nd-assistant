@@ -3,23 +3,33 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { handleOptions, setCors, writeSse } from "./_utils/sse";
 import { SYSTEM_PROMPT } from "./prompts/systemPrompt";
+import { MODELS } from "./prompts/models";
+import { ProfileSchema } from "../shared/profile";
 
 type ExtractedTask = {
   has_task: boolean;
   title: string;
   due_date: string | null;
   description: string | null;
+  quick_replies: string[];
 };
 
+const ChatMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().trim().min(1).max(10_000)
+});
+
 const ChatBodySchema = z.object({
-  message: z.string().trim().min(1, "Missing message.").max(10_000, "Message too long.")
+  messages: z.array(ChatMessageSchema).min(1).max(40)
+  ,profile: ProfileSchema.optional()
 });
 
 const ExtractedTaskSchema = z.object({
   has_task: z.boolean(),
   title: z.string(),
   due_date: z.string().nullable(),
-  description: z.string().nullable()
+  description: z.string().nullable(),
+  quick_replies: z.array(z.string()).max(4)
 });
 
 type RateLimitBucket = { count: number; resetAt: number };
@@ -57,20 +67,21 @@ function rateLimitOrThrow(req: VercelRequest) {
   }
 }
 
-function safeJson<T>(text: string): T | null {
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
-}
-
 function coerceTask(x: any): ExtractedTask {
   const has_task = !!x?.has_task;
   const title = typeof x?.title === "string" ? x.title : "";
   const due_date = typeof x?.due_date === "string" ? x.due_date : null;
   const description = typeof x?.description === "string" ? x.description : null;
-  return { has_task, title, due_date, description };
+  const quick_replies = Array.isArray(x?.quick_replies) ? x.quick_replies.filter((s: any) => typeof s === "string") : [];
+  return { has_task, title, due_date, description, quick_replies };
+}
+
+function clampQuickReplies(replies: string[]) {
+  return replies
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => (s.length > 40 ? s.slice(0, 40) : s))
+    .slice(0, 4);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -93,7 +104,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(400).json({ error: "Invalid request body.", details: parsedBody.error.flatten() });
     return;
   }
-  const message = parsedBody.data.message;
+
+  const messages = parsedBody.data.messages;
+  const profile = parsedBody.data.profile;
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") {
+    res.status(400).json({ error: "Invalid request body.", details: { messages: ["Last message must be role=user."] } });
+    return;
+  }
 
   try {
     rateLimitOrThrow(req);
@@ -129,11 +147,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }, 15_000);
 
     const stream = await client.messages.stream({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
+      model: MODELS.chat,
+      max_tokens: Number(process.env.CHAT_MAX_TOKENS ?? 800),
       temperature: 0.5,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: message }]
+      system:
+        SYSTEM_PROMPT +
+        (profile
+          ? `\n\nPREFERENZE UTENTE (rispettale, non citarle a voce):\n` +
+            `${
+              profile.neurotypes?.length
+                ? `- Neurotipi: ${profile.neurotypes
+                    .map((x) =>
+                      x === "adhd"
+                        ? "ADHD"
+                        : x === "autism"
+                          ? "Autismo"
+                          : x === "dyslexia"
+                            ? "Dislessia"
+                            : x === "anxiety"
+                              ? "Ansia"
+                              : "Preferisco non dirlo"
+                    )
+                    .join(", ")}\n`
+                : ""
+            }` +
+            `${
+              profile.response_length
+                ? `- Lunghezza risposte preferita: ${
+                    profile.response_length === "very_short"
+                      ? "Brevissime"
+                      : profile.response_length === "detailed"
+                        ? "Dettagliate quando serve"
+                        : "Normali"
+                  }\n`
+                : ""
+            }` +
+            `${profile.name ? `- Nome: ${profile.name}\n` : ""}`
+          : ""),
+      messages
     });
 
     let fullText = "";
@@ -156,34 +207,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    // Secondary: extract task JSON (non-streaming, short + deterministic).
+    // Secondary: extract task + quick replies (tool use, short + deterministic).
+    const extractPrompt =
+      "Estrai (se presente) UNA attività esplicita dall'ultimo messaggio dell'utente e suggerisci fino a 4 risposte rapide (dal punto di vista dell'utente), molto brevi, nella lingua dell'utente. " +
+      "Se l'utente è sopraffatto o in blocco, proponi risposte come: Silenzio / Parlare / Aiuto concreto. " +
+      "Se non utile, quick_replies può essere []. Non inventare scadenze.";
+
     const extract = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 120,
+      model: MODELS.extract,
+      max_tokens: 200,
       temperature: 0,
-      system:
-        SYSTEM_PROMPT +
-        `\n\nReturn ONLY valid JSON matching this schema:\n` +
-        `{\n  "has_task": boolean,\n  "title": "string",\n  "due_date": "ISO 8601 or null",\n  "description": "string or null"\n}\n` +
-        `If no task, set has_task=false and use empty title.`,
+      system: extractPrompt,
+      tools: [
+        {
+          name: "extract",
+          description: "Estrae un eventuale task e suggerimenti di risposta rapida.",
+          input_schema: {
+            type: "object",
+            properties: {
+              has_task: { type: "boolean" },
+              title: { type: "string" },
+              due_date: { type: ["string", "null"], description: "ISO 8601 o null" },
+              description: { type: ["string", "null"] },
+              quick_replies: { type: "array", items: { type: "string" }, maxItems: 4 }
+            },
+            required: ["has_task", "title", "due_date", "description", "quick_replies"]
+          }
+        }
+      ],
+      tool_choice: { type: "tool", name: "extract" },
       messages: [
         {
           role: "user",
-          content:
-            `User message:\n${message}\n\nAssistant response:\n${fullText}\n\nExtract task JSON now.`
+          content: `Messaggio utente:\n${last.content}\n\nRisposta assistente:\n${fullText}`
         }
       ]
     });
 
-    const text = extract.content
-      .map((b) => ("text" in b ? (b.text as string) : ""))
-      .join("")
-      .trim();
-
-    const parsed = safeJson<ExtractedTask>(text);
-    if (parsed) {
-      const safeTask = ExtractedTaskSchema.safeParse(coerceTask(parsed));
-      if (safeTask.success) writeSse(res, "task", JSON.stringify(safeTask.data));
+    const toolBlock = extract.content.find((b: any) => b && b.type === "tool_use" && b.name === "extract") as any;
+    const toolInput = toolBlock?.input ?? null;
+    if (toolInput) {
+      const candidate = coerceTask(toolInput);
+      candidate.quick_replies = clampQuickReplies(candidate.quick_replies);
+      const safeTask = ExtractedTaskSchema.safeParse(candidate);
+      if (safeTask.success) {
+        writeSse(res, "task", JSON.stringify(safeTask.data));
+        writeSse(res, "suggestions", JSON.stringify(safeTask.data.quick_replies));
+      }
     }
 
     writeSse(res, "done", "1");

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Task } from "../hooks/useTasks";
+import { t } from "../i18n";
 
-type CaldavCredentials = { username: string; password: string };
+type CaldavStored = { username: string };
 
 const LS_CALDAV = "caldav_credentials";
 
@@ -25,12 +26,12 @@ export default function CalendarConnect({
   task: Pick<Task, "title" | "due_date" | "description">;
   onSynced: (calendarSynced: boolean) => void;
 }) {
-  const stored = useMemo(() => safeJsonParse<CaldavCredentials>(localStorage.getItem(LS_CALDAV)), []);
+  const stored = useMemo(() => safeJsonParse<CaldavStored>(localStorage.getItem(LS_CALDAV)), []);
   const [username, setUsername] = useState(stored?.username ?? "");
-  const [password, setPassword] = useState(stored?.password ?? "");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -59,13 +60,13 @@ export default function CalendarConnect({
       if (!res.ok || !json?.success) throw new Error(json?.error || `Request failed (${res.status})`);
 
       if (remember) {
-        localStorage.setItem(LS_CALDAV, JSON.stringify({ username: username.trim(), password }));
+        localStorage.setItem(LS_CALDAV, JSON.stringify({ username: username.trim() }));
       }
 
       onSynced(!!json.calendar_synced);
       onClose();
     } catch (e) {
-      setError((e as Error).message || "Sync failed.");
+      setError((e as Error).message || t("calendar.syncFailed"));
     } finally {
       setBusy(false);
     }
@@ -76,27 +77,31 @@ export default function CalendarConnect({
       <button
         type="button"
         className="absolute inset-0 bg-black/60"
-        aria-label="Close calendar connect"
+        aria-label={t("calendar.close")}
         onClick={onClose}
       />
 
       <div className="relative w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl">
         <div className="p-5 border-b border-slate-800">
-          <div className="text-base font-semibold text-slate-100">Connect Apple Calendar (optional)</div>
+          <div className="text-base font-semibold text-slate-100">{t("calendar.title")}</div>
           <div className="mt-1 text-sm text-slate-400">
-            Use an <span className="text-slate-200 font-medium">app-specific password</span> from iCloud settings (not your main password).
+            {t("calendar.subtitle")}
           </div>
         </div>
 
         <div className="p-5 space-y-3">
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
-            <div className="text-xs uppercase tracking-wide text-slate-400">Task</div>
+            <div className="text-xs uppercase tracking-wide text-slate-400">{t("calendar.task")}</div>
             <div className="mt-1 text-sm text-slate-100 font-medium">{task.title}</div>
-            {task.due_date ? <div className="mt-1 text-xs text-slate-400">Due: {new Date(task.due_date).toLocaleString()}</div> : null}
+            {task.due_date ? (
+              <div className="mt-1 text-xs text-slate-400">
+                {t("calendar.due")} {new Date(task.due_date).toLocaleString()}
+              </div>
+            ) : null}
           </div>
 
           <label className="block">
-            <div className="text-xs text-slate-400 mb-1">iCloud email</div>
+            <div className="text-xs text-slate-400 mb-1">{t("calendar.email")}</div>
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -107,7 +112,7 @@ export default function CalendarConnect({
           </label>
 
           <label className="block">
-            <div className="text-xs text-slate-400 mb-1">App-specific password</div>
+            <div className="text-xs text-slate-400 mb-1">{t("calendar.password")}</div>
             <input
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -125,7 +130,7 @@ export default function CalendarConnect({
               onChange={(e) => setRemember(e.target.checked)}
               className="h-4 w-4 rounded border-slate-700 bg-slate-900"
             />
-            Remember credentials in this browser
+            {t("calendar.remember")}
           </label>
 
           {error ? (
@@ -145,7 +150,7 @@ export default function CalendarConnect({
             }}
             className="text-sm text-slate-400 hover:text-slate-200 transition"
           >
-            Clear saved credentials
+            {t("calendar.clearSaved")}
           </button>
 
           <div className="flex items-center gap-2">
@@ -155,7 +160,7 @@ export default function CalendarConnect({
               className="rounded-xl px-4 py-2 text-sm border border-slate-800 bg-slate-900/50 text-slate-100 hover:bg-slate-900 transition"
               disabled={busy}
             >
-              Cancel
+              {t("calendar.cancel")}
             </button>
             <button
               type="button"
@@ -163,7 +168,7 @@ export default function CalendarConnect({
               className="rounded-xl px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-500 transition disabled:opacity-60 disabled:cursor-not-allowed"
               disabled={busy || !username.trim() || !password}
             >
-              {busy ? "Syncing…" : "Sync to Calendar"}
+              {busy ? t("calendar.syncing") : t("calendar.sync")}
             </button>
           </div>
         </div>

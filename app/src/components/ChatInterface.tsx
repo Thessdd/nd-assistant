@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, ExtractedTask } from "../hooks/useChat";
+import { t } from "../i18n";
 
 function TypingDots() {
   return (
@@ -44,7 +45,8 @@ export default function ChatInterface({
   extractedTask,
   canAddTask,
   onAddToCalendar,
-  showTimestamps,
+  suggestions,
+  onClearSuggestions,
   onSkipTask
 }: {
   messages: ChatMessage[];
@@ -55,7 +57,8 @@ export default function ChatInterface({
   extractedTask: ExtractedTask | null;
   canAddTask: boolean;
   onAddToCalendar: () => void;
-  showTimestamps?: boolean;
+  suggestions?: string[];
+  onClearSuggestions?: () => void;
   onSkipTask?: () => void;
 }) {
   const [text, setText] = useState("");
@@ -110,7 +113,7 @@ export default function ChatInterface({
         {messages.length === 0 ? (
           <div className="nd-card nd-chat__empty">
             <div className="nd-muted">
-              Write what you need in one message. If a task is detected, you’ll get a simple inline choice to add it (or skip).
+              {t("chat.empty")}
             </div>
           </div>
         ) : null}
@@ -118,7 +121,7 @@ export default function ChatInterface({
         {showJump ? (
           <div className="nd-jump">
             <button type="button" className="nd-btn nd-btn--ghost" onClick={jumpToLatest}>
-              Jump to latest
+              {t("chat.jumpLatest")}
             </button>
           </div>
         ) : null}
@@ -132,7 +135,7 @@ export default function ChatInterface({
             <div className="nd-message-row nd-message-row--assistant nd-fade-in">
               <div className="nd-message nd-message--assistant" aria-live="polite">
                 <div className="nd-message__content">
-                  <span className="nd-muted">Typing</span> <TypingDots />
+                  <span className="nd-muted">{t("chat.typing")}</span> <TypingDots />
                 </div>
               </div>
             </div>
@@ -148,16 +151,16 @@ export default function ChatInterface({
         ) : null}
 
         {canAddTask && extractedTask ? (
-          <div className="nd-inline-confirm" role="group" aria-label="Task found confirmation">
+          <div className="nd-inline-confirm" role="group" aria-label={t("chat.taskFound")}>
             <div className="nd-inline-confirm__text">
-              <div className="nd-inline-confirm__title">Task found</div>
+              <div className="nd-inline-confirm__title">{t("chat.taskFound")}</div>
               <div className="nd-inline-confirm__value" title={extractedTask.title}>
                 {extractedTask.title}
               </div>
             </div>
             <div className="nd-inline-confirm__actions">
               <button type="button" onClick={onAddToCalendar} className="nd-btn nd-btn--primary">
-                Add to calendar
+                {t("chat.addToCalendar")}
               </button>
               <button
                 type="button"
@@ -165,16 +168,34 @@ export default function ChatInterface({
                 className="nd-btn nd-btn--ghost"
                 disabled={!onSkipTask}
               >
-                Skip
+                {t("chat.skip")}
               </button>
             </div>
           </div>
         ) : null}
 
         <div className="nd-composer">
-          <label className="nd-sr-only" htmlFor="nd-chat-input">
-            Write a message
-          </label>
+          {!isStreaming && (suggestions?.length ?? 0) > 0 ? (
+            <div className="nd-suggestions" role="group" aria-label="Suggerimenti rapidi">
+              {suggestions!.map((s, idx) => (
+                <button
+                  key={`${idx}-${s}`}
+                  type="button"
+                  className="nd-chip"
+                  onClick={() => {
+                    onClearSuggestions?.();
+                    onSend(s);
+                    setText("");
+                  }}
+                  aria-label={`Invia: ${s}`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <label className="nd-sr-only" htmlFor="nd-chat-input">{t("chat.input.label")}</label>
           <textarea
             id="nd-chat-input"
             value={text}
@@ -188,7 +209,7 @@ export default function ChatInterface({
                 (e.currentTarget as HTMLTextAreaElement).blur();
               }
             }}
-            placeholder="Write a message… (Enter to send, Shift+Enter for a new line)"
+            placeholder={t("chat.input.placeholder")}
             className="nd-input"
             disabled={isStreaming}
             rows={2}
@@ -197,7 +218,7 @@ export default function ChatInterface({
           <div className="nd-composer__actions">
             {isStreaming ? (
               <button type="button" onClick={onStop} className="nd-btn nd-btn--ghost">
-                Stop
+                {t("chat.stop")}
               </button>
             ) : null}
             <button
@@ -206,12 +227,12 @@ export default function ChatInterface({
               disabled={isStreaming || !text.trim()}
               className="nd-btn nd-btn--primary"
             >
-              Send
+              {t("chat.send")}
             </button>
           </div>
         </div>
 
-        <div className="nd-footnote">Privacy: chat + tasks stay in your browser unless you choose calendar sync.</div>
+        <div className="nd-footnote">{t("chat.privacyFootnote")}</div>
       </div>
     </div>
   );
