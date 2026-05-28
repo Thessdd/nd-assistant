@@ -1,7 +1,10 @@
 {
   "buildCommand": "cd app && npm run build",
   "outputDirectory": "app/dist",
-  "env": ["ANTHROPIC_API_KEY"],
+  "installCommand": "npm install && cd app && npm install",
+  "env": {
+    "ANTHROPIC_API_KEY": "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"
+  },
   "functions": {
     "api/**/*.ts": {
       "runtime": "nodejs18.x"
