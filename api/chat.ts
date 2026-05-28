@@ -62,7 +62,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const stream = await client.messages.stream({
-      model: "claude-3-5-sonnet-latest",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 400,
       temperature: 0.5,
       system: SYSTEM_PROMPT,
