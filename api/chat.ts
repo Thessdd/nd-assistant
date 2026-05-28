@@ -365,7 +365,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Secondary: extract task JSON (non-streaming, short + deterministic).
     const extract = await client.messages.create({
-      model: "claude-3-5-sonnet-latest",
+      model: "claude-sonnet-4-6",
       max_tokens: 120,
       temperature: 0,
       system:
