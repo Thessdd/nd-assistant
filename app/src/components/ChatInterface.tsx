@@ -44,6 +44,7 @@ export default function ChatInterface({
   extractedTask,
   canAddTask,
   onAddToCalendar,
+  showTimestamps,
   onSkipTask
 }: {
   messages: ChatMessage[];
@@ -54,9 +55,11 @@ export default function ChatInterface({
   extractedTask: ExtractedTask | null;
   canAddTask: boolean;
   onAddToCalendar: () => void;
+  showTimestamps?: boolean;
   onSkipTask?: () => void;
 }) {
   const [text, setText] = useState("");
+  const [showJump, setShowJump] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
   const tsRef = useRef<number[]>([]);
@@ -83,6 +86,15 @@ export default function ChatInterface({
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     atBottomRef.current = nearBottom;
+    setShowJump(!nearBottom && el.scrollHeight > el.clientHeight + 120);
+  }
+
+  function jumpToLatest() {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    atBottomRef.current = true;
+    setShowJump(false);
   }
 
   function submit() {
@@ -100,6 +112,14 @@ export default function ChatInterface({
             <div className="nd-muted">
               Write what you need in one message. If a task is detected, you’ll get a simple inline choice to add it (or skip).
             </div>
+          </div>
+        ) : null}
+
+        {showJump ? (
+          <div className="nd-jump">
+            <button type="button" className="nd-btn nd-btn--ghost" onClick={jumpToLatest}>
+              Jump to latest
+            </button>
           </div>
         ) : null}
 
@@ -168,7 +188,7 @@ export default function ChatInterface({
                 (e.currentTarget as HTMLTextAreaElement).blur();
               }
             }}
-            placeholder="Scrivi un messaggio… (Invio per inviare, Shift+Invio per andare a capo)"
+            placeholder="Write a message… (Enter to send, Shift+Enter for a new line)"
             className="nd-input"
             disabled={isStreaming}
             rows={2}

@@ -14,6 +14,18 @@ html {
   letter-spacing: normal;
 }
 
+html[data-font-family="accessible"] {
+  font-family:
+    "Atkinson Hyperlegible",
+    "Lexend",
+    "OpenDyslexic",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Arial,
+    sans-serif;
+}
+
 /* ND-friendly theming via CSS variables */
 :root {
   /* Dark (default) */
@@ -60,6 +72,10 @@ html[data-font="normal"] {
 }
 html[data-font="large"] {
   font-size: 18px;
+}
+
+html[data-density="compact"] {
+  line-height: 1.5;
 }
 
 body {
@@ -285,6 +301,15 @@ html[data-theme="light"] .nd-input {
   color: var(--nd-muted);
 }
 
+.nd-jump {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  padding: 0 0 10px;
+}
+
 .nd-inline-confirm {
   display: grid;
   gap: 10px;
@@ -418,14 +443,48 @@ html[data-theme="light"] .nd-input {
   overflow: hidden;
 }
 .nd-task-row__delete {
-  opacity: 0;
-  pointer-events: none;
   min-height: 44px;
 }
-.nd-task-row:hover .nd-task-row__delete,
-.nd-task-row:focus-within .nd-task-row__delete {
-  opacity: 1;
-  pointer-events: auto;
+
+/* Hide chat timestamps when desired */
+html[data-timestamps="off"] .nd-message__meta {
+  display: none;
+}
+
+/* Density adjustments */
+html[data-density="compact"] .nd-chat__list {
+  padding: 12px;
+}
+html[data-density="compact"] .nd-chat__stack {
+  gap: 10px;
+}
+html[data-density="compact"] .nd-chat__composer {
+  padding: 10px 12px 12px;
+  gap: 10px;
+}
+html[data-density="compact"] .nd-header {
+  padding: 12px 12px 10px;
+}
+html[data-density="compact"] .nd-footer {
+  padding: 10px 12px 12px;
+  gap: 6px;
+}
+html[data-density="compact"] .nd-task-list {
+  padding: 10px 12px 12px;
+  gap: 8px;
+}
+html[data-density="compact"] .nd-task-row {
+  padding: 10px 10px;
+}
+html[data-density="compact"] .nd-message {
+  padding: 10px 12px;
+}
+
+/* Keep transitions subtle (avoid "snappy" motion feel) */
+.nd-segment__btn,
+.nd-btn,
+.nd-toggle__knob {
+  transition-timing-function: ease-in-out;
 }
 
 .nd-empty-title {
@@ -510,6 +569,11 @@ html[data-theme="light"] .nd-input {
   background: transparent;
   color: var(--nd-text);
   font-weight: 650;
+}
+.nd-pill--spacer {
+  border-style: dashed;
+  opacity: 0.35;
+  pointer-events: none;
 }
 .nd-pill--on {
   border-color: rgba(59, 130, 246, 0.55);

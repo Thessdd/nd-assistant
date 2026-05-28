@@ -16,11 +16,16 @@ function Toast({ text }: { text: string }) {
 
 type ThemeMode = "dark" | "light" | "contrast";
 type FontSize = "small" | "normal" | "large";
+type Density = "comfortable" | "compact";
+type FontFamily = "system" | "accessible";
 
 type NdSettings = {
   theme: ThemeMode;
   reduceMotion: boolean;
   fontSize: FontSize;
+  density: Density;
+  fontFamily: FontFamily;
+  timestamps: boolean;
   sound: boolean;
 };
 
@@ -136,6 +141,70 @@ function SettingsModal({
 
           <div className="nd-setting">
             <div className="nd-setting__text">
+              <div className="nd-setting__label">Font</div>
+              <div className="nd-setting__help">Choose a highly legible typeface stack where available.</div>
+            </div>
+            <div className="nd-setting__control" role="group" aria-label="Font selection">
+              <button
+                type="button"
+                className={["nd-pill", value.fontFamily === "system" ? "nd-pill--on" : ""].join(" ")}
+                onClick={() => onChange({ ...value, fontFamily: "system" })}
+              >
+                System
+              </button>
+              <button
+                type="button"
+                className={["nd-pill", value.fontFamily === "accessible" ? "nd-pill--on" : ""].join(" ")}
+                onClick={() => onChange({ ...value, fontFamily: "accessible" })}
+              >
+                Accessible
+              </button>
+              <div className="nd-pill nd-pill--spacer" aria-hidden="true" />
+            </div>
+          </div>
+
+          <div className="nd-setting">
+            <div className="nd-setting__text">
+              <div className="nd-setting__label">Layout density</div>
+              <div className="nd-setting__help">Compact reduces scrolling. Comfortable adds breathing room.</div>
+            </div>
+            <div className="nd-setting__control" role="group" aria-label="Layout density selection">
+              <button
+                type="button"
+                className={["nd-pill", value.density === "comfortable" ? "nd-pill--on" : ""].join(" ")}
+                onClick={() => onChange({ ...value, density: "comfortable" })}
+              >
+                Comfortable
+              </button>
+              <button
+                type="button"
+                className={["nd-pill", value.density === "compact" ? "nd-pill--on" : ""].join(" ")}
+                onClick={() => onChange({ ...value, density: "compact" })}
+              >
+                Compact
+              </button>
+              <div className="nd-pill nd-pill--spacer" aria-hidden="true" />
+            </div>
+          </div>
+
+          <div className="nd-setting">
+            <div className="nd-setting__text">
+              <div className="nd-setting__label">Timestamps in chat</div>
+              <div className="nd-setting__help">Hide timestamps to reduce visual scanning load.</div>
+            </div>
+            <button
+              type="button"
+              className={["nd-toggle", value.timestamps ? "nd-toggle--on" : "nd-toggle--off"].join(" ")}
+              aria-pressed={value.timestamps}
+              onClick={() => onChange({ ...value, timestamps: !value.timestamps })}
+            >
+              <span className="nd-toggle__knob" aria-hidden="true" />
+              <span className="nd-toggle__label">{value.timestamps ? "On" : "Off"}</span>
+            </button>
+          </div>
+
+          <div className="nd-setting">
+            <div className="nd-setting__text">
               <div className="nd-setting__label">Sound</div>
               <div className="nd-setting__help">Off by default. Only used if you add sound cues later.</div>
             </div>
@@ -175,6 +244,9 @@ export default function App() {
       theme: stored?.theme === "light" || stored?.theme === "contrast" ? stored.theme : "dark",
       reduceMotion: typeof stored?.reduceMotion === "boolean" ? stored.reduceMotion : false,
       fontSize: stored?.fontSize === "small" || stored?.fontSize === "large" ? stored.fontSize : "normal",
+      density: stored?.density === "compact" ? "compact" : "comfortable",
+      fontFamily: stored?.fontFamily === "accessible" ? "accessible" : "system",
+      timestamps: typeof stored?.timestamps === "boolean" ? stored.timestamps : true,
       sound: typeof stored?.sound === "boolean" ? stored.sound : false
     };
   });
@@ -198,6 +270,9 @@ export default function App() {
     document.documentElement.dataset.theme = settings.theme;
     document.documentElement.dataset.motion = settings.reduceMotion ? "reduced" : "full";
     document.documentElement.dataset.font = settings.fontSize;
+    document.documentElement.dataset.density = settings.density;
+    document.documentElement.dataset.fontFamily = settings.fontFamily;
+    document.documentElement.dataset.timestamps = settings.timestamps ? "on" : "off";
   }, [settings]);
 
   function clearAllData() {
@@ -271,6 +346,7 @@ export default function App() {
               extractedTask={lastExtractedTask}
               canAddTask={!!canShowInlineTask}
               onAddToCalendar={addTaskFromExtraction}
+              showTimestamps={settings.timestamps}
               onSkipTask={() => {
                 if (!extractedAsTask) return;
                 setDismissedTaskKey(`${extractedAsTask.title}|${extractedAsTask.due_date ?? ""}`);

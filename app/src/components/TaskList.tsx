@@ -65,7 +65,7 @@ export default function TaskList({
                       <div className={["nd-task-title", t.status === "done" ? "nd-task-title--done" : ""].join(" ")}>
                         {t.title}
                       </div>
-                      {due ? <div className="nd-task-due">📅 {due}</div> : null}
+                      {due ? <div className="nd-task-due">Due: {due}</div> : null}
                       {t.description ? <div className="nd-task-desc">{t.description}</div> : null}
                     </div>
 
