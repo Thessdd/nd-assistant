@@ -9,7 +9,7 @@ type ExtractedTask = {
   description: string | null;
 };
 
-const SYSTEM_PROMPT = const ND_SYSTEM_PROMPT = `
+const SYSTEM_PROMPT = `
 Tu sei un assistente personale progettato SPECIFICAMENTE per persone neurodivergenti: ADHD, autismo, dislessia, ansia, paralisi decisionale.
 
 ## VOICE & TONE
@@ -251,7 +251,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  // @ts-expect-error - Node response supports flushHeaders in Vercel runtime
   res.flushHeaders?.();
 
   const client = new Anthropic({ apiKey });
