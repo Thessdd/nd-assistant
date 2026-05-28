@@ -2,9 +2,6 @@
   "buildCommand": "cd app && npm run build",
   "outputDirectory": "app/dist",
   "installCommand": "npm install && cd app && npm install",
-  "env": {
-    "ANTHROPIC_API_KEY": "@anthropic_api_key"
-  },
   "functions": {
     "api/**/*.ts": {
       "runtime": "nodejs18.x"
