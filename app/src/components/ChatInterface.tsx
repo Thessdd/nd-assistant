@@ -1,27 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, ExtractedTask } from "../hooks/useChat";
 
-function Dots() {
+function TypingDots() {
   return (
-    <span className="inline-flex items-center gap-1">
-      <span className="h-1.5 w-1.5 rounded-full bg-slate-300/80 animate-pulse-dots [animation-delay:0ms]" />
-      <span className="h-1.5 w-1.5 rounded-full bg-slate-300/80 animate-pulse-dots [animation-delay:150ms]" />
-      <span className="h-1.5 w-1.5 rounded-full bg-slate-300/80 animate-pulse-dots [animation-delay:300ms]" />
+    <span className="nd-typing-dots" aria-hidden="true">
+      <span className="nd-typing-dot" style={{ animationDelay: "0ms" }} />
+      <span className="nd-typing-dot" style={{ animationDelay: "150ms" }} />
+      <span className="nd-typing-dot" style={{ animationDelay: "300ms" }} />
     </span>
   );
 }
 
-function Bubble({ msg }: { msg: ChatMessage }) {
+function formatTimestamp(ts: number) {
+  return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function MessageRow({
+  msg,
+  ts
+}: {
+  msg: ChatMessage;
+  ts: number;
+}) {
   const isUser = msg.role === "user";
   return (
-    <div className={["w-full flex", isUser ? "justify-end" : "justify-start"].join(" ")}>
-      <div
-        className={[
-          "max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm",
-          isUser ? "bg-blue-600 text-white" : "bg-slate-800/80 text-slate-100 border border-slate-700/60"
-        ].join(" ")}
-      >
-        {msg.content}
+    <div className={["nd-message-row", isUser ? "nd-message-row--user" : "nd-message-row--assistant", "nd-fade-in"].join(" ")}>
+      <div className={["nd-message", isUser ? "nd-message--user" : "nd-message--assistant"].join(" ")}>
+        <div className="nd-message__content">{msg.content}</div>
+        <div className="nd-message__meta">
+          <span className="nd-message__time">{formatTimestamp(ts)}</span>
+        </div>
       </div>
     </div>
   );
@@ -35,7 +43,8 @@ export default function ChatInterface({
   onStop,
   extractedTask,
   canAddTask,
-  onAddToCalendar
+  onAddToCalendar,
+  onSkipTask
 }: {
   messages: ChatMessage[];
   isStreaming: boolean;
@@ -45,15 +54,23 @@ export default function ChatInterface({
   extractedTask: ExtractedTask | null;
   canAddTask: boolean;
   onAddToCalendar: () => void;
+  onSkipTask?: () => void;
 }) {
   const [text, setText] = useState("");
   const listRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
+  const tsRef = useRef<number[]>([]);
 
   const assistantLastEmpty = useMemo(() => {
     const last = messages[messages.length - 1];
     return !!last && last.role === "assistant" && last.content.trim().length === 0;
   }, [messages]);
+
+  useEffect(() => {
+    // ensure stable timestamps per message index (best-effort, backwards compatible)
+    const now = Date.now();
+    while (tsRef.current.length < messages.length) tsRef.current.push(now);
+  }, [messages.length]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -76,71 +93,70 @@ export default function ChatInterface({
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-100">ND Assistant</div>
-          <div className="text-xs text-slate-400">Direct. Pragmatic. Supportive. No login.</div>
-        </div>
-        <div className="flex items-center gap-2">
-          {isStreaming ? (
-            <button
-              type="button"
-              onClick={onStop}
-              className="rounded-xl px-3 py-2 text-xs border border-slate-800 bg-slate-900/50 text-slate-100 hover:bg-slate-900 transition"
-            >
-              Stop
-            </button>
+    <div className="nd-chat h-full flex flex-col">
+      <div ref={listRef} onScroll={onScroll} className="nd-chat__list flex-1 overflow-auto">
+        {messages.length === 0 ? (
+          <div className="nd-card nd-chat__empty">
+            <div className="nd-muted">
+              Write what you need in one message. If a task is detected, you’ll get a simple inline choice to add it (or skip).
+            </div>
+          </div>
+        ) : null}
+
+        <div className="nd-chat__stack">
+          {messages.map((m, idx) => (
+            <MessageRow key={idx} msg={m} ts={tsRef.current[idx] ?? Date.now()} />
+          ))}
+
+          {isStreaming && assistantLastEmpty ? (
+            <div className="nd-message-row nd-message-row--assistant nd-fade-in">
+              <div className="nd-message nd-message--assistant" aria-live="polite">
+                <div className="nd-message__content">
+                  <span className="nd-muted">Typing</span> <TypingDots />
+                </div>
+              </div>
+            </div>
           ) : null}
         </div>
       </div>
 
-      <div ref={listRef} onScroll={onScroll} className="flex-1 overflow-auto p-4 space-y-3">
-        {messages.length === 0 ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-200">
-            Tell me what’s on your mind. If you mention a task, I’ll offer to add it to your calendar.
-          </div>
-        ) : null}
-
-        {messages.map((m, idx) => (
-          <Bubble key={idx} msg={m} />
-        ))}
-
-        {isStreaming && assistantLastEmpty ? (
-          <div className="w-full flex justify-start">
-            <div className="rounded-2xl px-4 py-3 text-sm bg-slate-800/80 text-slate-100 border border-slate-700/60">
-              <Dots />
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="border-t border-slate-800 p-4 space-y-3">
+      <div className="nd-chat__composer">
         {error ? (
-          <div className="rounded-xl border border-rose-900/60 bg-rose-950/30 px-3 py-2 text-sm text-rose-200">
+          <div className="nd-alert nd-alert--error" role="alert">
             {error}
           </div>
         ) : null}
 
         {canAddTask && extractedTask ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-xs uppercase tracking-wide text-slate-400">Task detected</div>
-              <div className="text-sm text-slate-100 font-medium truncate">{extractedTask.title}</div>
-              <div className="text-xs text-slate-400 mt-0.5">Add to calendar?</div>
+          <div className="nd-inline-confirm" role="group" aria-label="Task found confirmation">
+            <div className="nd-inline-confirm__text">
+              <div className="nd-inline-confirm__title">Task found</div>
+              <div className="nd-inline-confirm__value" title={extractedTask.title}>
+                {extractedTask.title}
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={onAddToCalendar}
-              className="shrink-0 rounded-xl px-4 py-2 text-sm bg-emerald-600 text-white hover:bg-emerald-500 transition"
-            >
-              Add
-            </button>
+            <div className="nd-inline-confirm__actions">
+              <button type="button" onClick={onAddToCalendar} className="nd-btn nd-btn--primary">
+                Add to calendar
+              </button>
+              <button
+                type="button"
+                onClick={onSkipTask}
+                className="nd-btn nd-btn--ghost"
+                disabled={!onSkipTask}
+              >
+                Skip
+              </button>
+            </div>
           </div>
         ) : null}
 
-        <div className="flex items-end gap-2">
+        <div className="nd-composer">
+          <label className="nd-sr-only" htmlFor="nd-chat-input">
+            Write a message
+          </label>
           <textarea
+            id="nd-chat-input"
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
@@ -148,25 +164,34 @@ export default function ChatInterface({
                 e.preventDefault();
                 submit();
               }
+              if (e.key === "Escape") {
+                (e.currentTarget as HTMLTextAreaElement).blur();
+              }
             }}
-            placeholder="Write a message… (Enter to send, Shift+Enter for newline)"
-            className="min-h-[44px] max-h-[160px] w-full resize-none rounded-2xl bg-slate-900 border border-slate-800 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none transition"
+            placeholder="Scrivi un messaggio… (Invio per inviare, Shift+Invio per andare a capo)"
+            className="nd-input"
             disabled={isStreaming}
+            rows={2}
           />
 
-          <button
-            type="button"
-            onClick={submit}
-            disabled={isStreaming || !text.trim()}
-            className="rounded-2xl px-4 py-3 text-sm bg-blue-600 text-white hover:bg-blue-500 transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            Send
-          </button>
+          <div className="nd-composer__actions">
+            {isStreaming ? (
+              <button type="button" onClick={onStop} className="nd-btn nd-btn--ghost">
+                Stop
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={submit}
+              disabled={isStreaming || !text.trim()}
+              className="nd-btn nd-btn--primary"
+            >
+              Send
+            </button>
+          </div>
         </div>
 
-        <div className="text-xs text-slate-500">
-          Privacy: chat + tasks stay in your browser unless you sync a calendar event.
-        </div>
+        <div className="nd-footnote">Privacy: chat + tasks stay in your browser unless you choose calendar sync.</div>
       </div>
     </div>
   );
