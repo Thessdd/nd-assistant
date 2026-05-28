@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import { handleOptions, setCors, writeSse } from "./_utils/sse";
 import { SYSTEM_PROMPT } from "./prompts/systemPrompt";
 
@@ -9,6 +10,52 @@ type ExtractedTask = {
   due_date: string | null;
   description: string | null;
 };
+
+const ChatBodySchema = z.object({
+  message: z.string().trim().min(1, "Missing message.").max(10_000, "Message too long.")
+});
+
+const ExtractedTaskSchema = z.object({
+  has_task: z.boolean(),
+  title: z.string(),
+  due_date: z.string().nullable(),
+  description: z.string().nullable()
+});
+
+type RateLimitBucket = { count: number; resetAt: number };
+const RATE_LIMIT = {
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000),
+  max: Number(process.env.RATE_LIMIT_MAX ?? 20)
+};
+const rateLimitBuckets: Map<string, RateLimitBucket> = (globalThis as any).__nd_rl ?? new Map();
+(globalThis as any).__nd_rl = rateLimitBuckets;
+
+function getClientIp(req: VercelRequest) {
+  const xff = (req.headers["x-forwarded-for"] ?? "").toString();
+  const first = xff.split(",")[0]?.trim();
+  return first || (req.socket as any)?.remoteAddress || "unknown";
+}
+
+function rateLimitOrThrow(req: VercelRequest) {
+  if (RATE_LIMIT.max <= 0) return;
+  const now = Date.now();
+  const key = getClientIp(req);
+  const bucket = rateLimitBuckets.get(key);
+
+  if (!bucket || bucket.resetAt <= now) {
+    rateLimitBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT.windowMs });
+    return;
+  }
+
+  bucket.count += 1;
+  if (bucket.count > RATE_LIMIT.max) {
+    const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    const err = new Error("Rate limit exceeded.");
+    (err as any).statusCode = 429;
+    (err as any).retryAfterSec = retryAfterSec;
+    throw err;
+  }
+}
 
 function safeJson<T>(text: string): T | null {
   try {
@@ -28,7 +75,7 @@ function coerceTask(x: any): ExtractedTask {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleOptions(req, res)) return;
-  setCors(res);
+  setCors(req, res);
 
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
@@ -41,9 +88,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const message = (req.body?.message ?? "").toString().trim();
-  if (!message) {
-    res.status(400).json({ error: "Missing message." });
+  const parsedBody = ChatBodySchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    res.status(400).json({ error: "Invalid request body.", details: parsedBody.error.flatten() });
+    return;
+  }
+  const message = parsedBody.data.message;
+
+  try {
+    rateLimitOrThrow(req);
+  } catch (e) {
+    const status = Number((e as any).statusCode ?? 429);
+    const retryAfterSec = Number((e as any).retryAfterSec ?? 60);
+    res.setHeader("Retry-After", String(retryAfterSec));
+    res.status(status).json({ error: (e as Error).message || "Rate limit exceeded." });
     return;
   }
 
@@ -56,6 +114,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const client = new Anthropic({ apiKey });
 
   try {
+    let closed = false;
+    req.on("close", () => {
+      closed = true;
+    });
+
+    const ping = setInterval(() => {
+      if (closed) return;
+      try {
+        writeSse(res, "ping", "1");
+      } catch {
+        closed = true;
+      }
+    }, 15_000);
+
     const stream = await client.messages.stream({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 400,
@@ -67,15 +139,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let fullText = "";
 
     stream.on("text", (t) => {
+      if (closed) return;
       fullText += t;
       writeSse(res, "delta", t);
     });
 
     stream.on("error", (err) => {
+      if (closed) return;
       writeSse(res, "error", (err as Error).message || "Claude streaming error.");
     });
 
     await stream.finalMessage();
+
+    if (closed) {
+      clearInterval(ping);
+      return;
+    }
 
     // Secondary: extract task JSON (non-streaming, short + deterministic).
     const extract = await client.messages.create({
@@ -102,9 +181,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .trim();
 
     const parsed = safeJson<ExtractedTask>(text);
-    if (parsed) writeSse(res, "task", JSON.stringify(coerceTask(parsed)));
+    if (parsed) {
+      const safeTask = ExtractedTaskSchema.safeParse(coerceTask(parsed));
+      if (safeTask.success) writeSse(res, "task", JSON.stringify(safeTask.data));
+    }
 
     writeSse(res, "done", "1");
+    clearInterval(ping);
     res.end();
   } catch (e) {
     writeSse(res, "error", (e as Error).message || "Chat failed.");
