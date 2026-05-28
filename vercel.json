@@ -1,10 +1,5 @@
 {
   "buildCommand": "cd app && npm run build",
   "outputDirectory": "app/dist",
-  "installCommand": "npm install && cd app && npm install",
-  "functions": {
-    "api/**/*.ts": {
-      "runtime": "nodejs18.x"
-    }
-  }
+  "installCommand": "npm install && cd app && npm install"
 }
