@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd app && npm run build",
+  "outputDirectory": "app/dist",
+  "env": ["ANTHROPIC_API_KEY"],
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs18.x"
+    }
+  }
+}
